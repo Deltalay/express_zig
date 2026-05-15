@@ -1,0 +1,50 @@
+const std = @import("std");
+const express_zig = @import("express_zig");
+const Request = express_zig.Request;
+const Response = express_zig.Response;
+pub fn index(
+    req: *Request,
+    res: *Response,
+) void {
+    _ = req;
+
+    res.send("hello");
+}
+pub fn app_route(
+    req: *Request,
+    res: *Response,
+) void {
+    _ = req;
+
+    res.send("app");
+}
+pub fn get_app_route(
+    req: *Request,
+    res: *Response,
+) void {
+    _ = req;
+
+    res.send("app id");
+}
+pub fn stff_app_route(
+    req: *Request,
+    res: *Response,
+) void {
+    _ = req;
+
+    res.send("app stff");
+}
+pub fn main(init: std.process.Init) !void {
+    const arena: std.mem.Allocator = init.arena.allocator();
+    const io = init.io;
+
+    var app = express_zig.express_zig(arena, io);
+    try app.config("0.0.0.0", 8080);
+    try app.get("/", index);
+    try app.post("/app", app_route);
+    try app.get("/app/stff", stff_app_route);
+    
+    try app.get("/app/:id", get_app_route);
+
+    try app.run();
+}

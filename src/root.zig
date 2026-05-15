@@ -1,0 +1,238 @@
+//! By convention, root.zig is the root source file when making a package.
+const std = @import("std");
+const http = std.http;
+const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
+const net = std.Io.net;
+
+pub const Request = struct {
+    req: *http.Server.Request,
+    pub fn init(req: *http.Server.Request) Request {
+        return Request{
+            .req = req,
+        };
+    }
+};
+pub const Response = struct {
+    req: *http.Server.Request,
+    pub fn send(self: *Response, data: []const u8) void {
+        self.req.respond(data, .{ .keep_alive = false }) catch return;
+    }
+    pub fn init(req: *http.Server.Request) Response {
+        return Response{
+            .req = req,
+        };
+    }
+};
+const Method = enum { GET, POST, PUT, DELETE };
+const tree = struct {
+    handler: std.EnumMap(Method, ?*const fn (*Request, *Response) void),
+    child: std.StringHashMap(*tree),
+    special_tree: ?*tree,
+    pub fn init(allocator: std.mem.Allocator) tree {
+        const map = std.EnumMap(Method, ?*const fn (*Request, *Response) void){};
+
+        return tree{ .handler = map, .child = std.StringHashMap(*tree).init(allocator), .special_tree = null };
+    }
+};
+pub const App = struct {
+    io: Io,
+    port: u16 = 8000,
+    allocator: Allocator,
+    ip: ?[]u8 = null,
+    server: ?std.Io.net.Server = null,
+    root: tree,
+    pub fn find(self: *App, path: []const u8) ?*tree {
+        if (path.len == 0 or std.mem.eql(u8, path, "/")) {
+            return &self.root;
+        }
+
+        const trimmed = std.mem.trim(u8, path, "/");
+        var it = std.mem.splitScalar(u8, trimmed, '/');
+
+        var node: *tree = &self.root;
+
+        while (it.next()) |segment| {
+            if (segment.len == 0) continue;
+            if (node.child.contains(segment)) {
+                node = node.child.get(segment).?;
+            } else {
+                node = node.special_tree orelse return null;
+            }
+            // node = node.child.get(segment) orelse return null;
+        }
+
+        return node;
+    }
+    pub fn init(allocator: Allocator, io: Io) App {
+        return .{ .allocator = allocator, .io = io, .root = .init(allocator) };
+    }
+    pub fn put(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
+        if (path.len == 0 or std.mem.eql(u8, path, "/")) {
+            self.root.handler.put(Method.PUT, handler);
+            return;
+        }
+
+        const trimmed = std.mem.trim(u8, path, "/");
+        var path_it = std.mem.splitScalar(u8, trimmed, '/');
+
+        var node: *tree = &self.root;
+
+        while (path_it.next()) |x| {
+            if (x.len == 0) continue;
+
+            if (node.child.get(x)) |child| {
+                node = child;
+            } else {
+                const new_node = try self.allocator.create(tree);
+                new_node.* = tree.init(self.allocator);
+                if (std.mem.eql(u8, @constCast(x[0]), ":")) {
+                    std.debug.print("dynamic", .{});
+                }
+                node = new_node;
+            }
+        }
+
+        node.handler.put(Method.PUT, handler);
+    }
+    pub fn post(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
+        if (path.len == 0 or std.mem.eql(u8, path, "/")) {
+            self.root.handler.put(Method.POST, handler);
+            return;
+        }
+
+        const trimmed = std.mem.trim(u8, path, "/");
+        var path_it = std.mem.splitScalar(u8, trimmed, '/');
+
+        var node: *tree = &self.root;
+
+        while (path_it.next()) |x| {
+            if (x.len == 0) continue;
+
+            if (node.child.get(x)) |child| {
+                node = child;
+            } else {
+                const new_node = try self.allocator.create(tree);
+                new_node.* = tree.init(self.allocator);
+                try node.child.put(x, new_node);
+                node = new_node;
+            }
+        }
+
+        node.handler.put(Method.POST, handler);
+    }
+    pub fn delete(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
+        if (path.len == 0 or std.mem.eql(u8, path, "/")) {
+            self.root.handler.put(Method.DELETE, handler);
+            return;
+        }
+
+        const trimmed = std.mem.trim(u8, path, "/");
+        var path_it = std.mem.splitScalar(u8, trimmed, '/');
+
+        var node: *tree = &self.root;
+
+        while (path_it.next()) |x| {
+            if (x.len == 0) continue;
+
+            if (node.child.get(x)) |child| {
+                node = child;
+            } else {
+                const new_node = try self.allocator.create(tree);
+                new_node.* = tree.init(self.allocator);
+
+                try node.child.put(x, new_node);
+                node = new_node;
+            }
+        }
+
+        node.handler.put(Method.DELETE, handler);
+    }
+    pub fn get(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
+        if (path.len == 0 or std.mem.eql(u8, path, "/")) {
+            self.root.handler.put(Method.GET, handler);
+            return;
+        }
+
+        const trimmed = std.mem.trim(u8, path, "/");
+        var path_it = std.mem.splitScalar(u8, trimmed, '/');
+
+        var node: *tree = &self.root;
+
+        while (path_it.next()) |x| {
+            if (x.len == 0) continue;
+
+            if (node.child.get(x)) |child| {
+                node = child;
+            } else {
+                const new_node = try self.allocator.create(tree);
+                new_node.* = tree.init(self.allocator);
+                if (x[0] == ':') {
+                    node.special_tree = new_node;
+                    node = node.special_tree.? ;
+                } else {
+                    try node.child.put(x, new_node);
+                    node = new_node;
+                }
+            }
+        }
+
+        node.handler.put(Method.GET, handler);
+    }
+    pub fn config(self: *App, ip: []const u8, port: u16) !void {
+        self.port = port;
+        var counter: u32 = 0;
+        self.ip = try self.allocator.alloc(u8, ip.len);
+        if (self.ip) |x| {
+            while (counter < ip.len) : (counter = counter + 1) {
+                x[counter] = ip[counter];
+            }
+        }
+    }
+    pub fn deinit(self: *App) void {
+        self.allocator.free(self.ip.?);
+    }
+    pub fn run(self: *App) !void {
+        const ip = self.ip orelse return error.NoIpConfigured;
+        std.debug.print("Running on {s}:{d}\n", .{ ip, self.port });
+
+        const address = try net.IpAddress.parse(ip, self.port);
+        self.server = try address.listen(self.io, .{});
+        defer self.server.?.deinit(self.io);
+        while (true) {
+            const conn = try self.server.?.accept(self.io);
+            defer conn.close(self.io);
+            {
+                var reader_buf: [4096]u8 = undefined;
+                var writer_buf: [4096]u8 = undefined;
+                var reader = conn.reader(self.io, &reader_buf);
+                var writer = conn.writer(self.io, &writer_buf);
+                var server_http = std.http.Server.init(&reader.interface, &writer.interface);
+                var req = try server_http.receiveHead();
+                const method = req.head.method;
+                const target = req.head.target;
+                const node: *tree = find(self, target) orelse continue;
+
+                var res = Response.init(&req);
+                var requ = Request.init(&req);
+
+                switch (method) {
+                    .GET => {
+                        const h = node.handler.get(.GET) orelse {
+                            try req.respond("", .{ .status = .not_found });
+                            continue;
+                        };
+                        h.?(&requ, &res);
+                    },
+                    else => {},
+                }
+            }
+        }
+    }
+};
+
+pub fn express_zig(allocator: Allocator, io: Io) App {
+    return App.init(allocator, io);
+}
