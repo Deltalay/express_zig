@@ -22,9 +22,13 @@ pub fn get_app_route(
     req: *Request,
     res: *Response,
 ) void {
-    _ = req;
+    const id: []const u8 = req.params.get("id") orelse "unknwon";
+    const hello: []const u8 = req.params.get("hello") orelse "unknwon";
 
-    res.send("app id");
+    var buf: [256]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, "app {s} {s}", .{ id, hello }) catch "app error";
+
+    res.send(msg);
 }
 pub fn stff_app_route(
     req: *Request,
@@ -32,7 +36,7 @@ pub fn stff_app_route(
 ) void {
     _ = req;
 
-    res.send("app stff");
+    res.send("appstff");
 }
 pub fn main(init: std.process.Init) !void {
     const arena: std.mem.Allocator = init.arena.allocator();
@@ -43,8 +47,9 @@ pub fn main(init: std.process.Init) !void {
     try app.get("/", index);
     try app.post("/app", app_route);
     try app.get("/app/stff", stff_app_route);
-    
-    try app.get("/app/:id", get_app_route);
+    try app.get("/app/stff/sa", stff_app_route);
+
+    try app.get("/app/:id/:hello", get_app_route);
 
     try app.run();
 }

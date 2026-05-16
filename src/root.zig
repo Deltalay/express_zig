@@ -6,13 +6,15 @@ const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const net = std.Io.net;
-
+pub const Param = struct {};
 pub const Request = struct {
     req: *http.Server.Request,
-    pub fn init(req: *http.Server.Request) Request {
-        return Request{
-            .req = req,
-        };
+    params: std.StringHashMap([]const u8),
+    pub fn init(req: *http.Server.Request, allocator: std.mem.Allocator) Request {
+        return Request{ .req = req, .params = std.StringHashMap([]const u8).init(allocator) };
+    }
+    pub fn param(self: *Request, key: []const u8) ?[]u8 {
+        return self.params.get(key) orelse null;
     }
 };
 pub const Response = struct {
@@ -31,10 +33,11 @@ const tree = struct {
     handler: std.EnumMap(Method, ?*const fn (*Request, *Response) void),
     child: std.StringHashMap(*tree),
     special_tree: ?*tree,
+    special_name: ?[]const u8,
     pub fn init(allocator: std.mem.Allocator) tree {
         const map = std.EnumMap(Method, ?*const fn (*Request, *Response) void){};
 
-        return tree{ .handler = map, .child = std.StringHashMap(*tree).init(allocator), .special_tree = null };
+        return tree{ .handler = map, .child = std.StringHashMap(*tree).init(allocator), .special_tree = null, .special_name = null };
     }
 };
 pub const App = struct {
@@ -44,7 +47,7 @@ pub const App = struct {
     ip: ?[]u8 = null,
     server: ?std.Io.net.Server = null,
     root: tree,
-    pub fn find(self: *App, path: []const u8) ?*tree {
+    pub fn find(self: *App, path: []const u8, req: *Request) ?*tree {
         if (path.len == 0 or std.mem.eql(u8, path, "/")) {
             return &self.root;
         }
@@ -59,8 +62,17 @@ pub const App = struct {
             if (node.child.contains(segment)) {
                 node = node.child.get(segment).?;
             } else {
-                node = node.special_tree orelse return null;
+                if (node.special_tree != null) {
+                    const value: []const u8 = node.special_name orelse "unknown";
+                    req.params.put(value, segment) catch {
+                        std.debug.print("Fail to find params", .{});
+                    };
+                    node = node.special_tree orelse return null;
+                } else {
+                    return null;
+                }
             }
+
             // node = node.child.get(segment) orelse return null;
         }
 
@@ -171,7 +183,8 @@ pub const App = struct {
                 new_node.* = tree.init(self.allocator);
                 if (x[0] == ':') {
                     node.special_tree = new_node;
-                    node = node.special_tree.? ;
+                    node.special_name = x[1..];
+                    node = node.special_tree.?;
                 } else {
                     try node.child.put(x, new_node);
                     node = new_node;
@@ -213,18 +226,21 @@ pub const App = struct {
                 var req = try server_http.receiveHead();
                 const method = req.head.method;
                 const target = req.head.target;
-                const node: *tree = find(self, target) orelse continue;
-
-                var res = Response.init(&req);
-                var requ = Request.init(&req);
-
+                var response = Response.init(&req);
+                var request = Request.init(&req, self.allocator);
+                const node = find(self, target, &request);
+                const n = node orelse {
+                    try req.respond("", .{ .status = .not_found });
+                    continue;
+                };
                 switch (method) {
                     .GET => {
-                        const h = node.handler.get(.GET) orelse {
+                        const h = n.handler.get(.GET) orelse {
                             try req.respond("", .{ .status = .not_found });
                             continue;
                         };
-                        h.?(&requ, &res);
+
+                        h.?(&request, &response);
                     },
                     else => {},
                 }
