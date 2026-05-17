@@ -56,32 +56,31 @@ pub const App = struct {
         var it = std.mem.splitScalar(u8, trimmed, '/');
 
         var node: ?*tree = &self.root;
-        var node_special: ?*tree = &self.root;
 
         while (it.next()) |segment| {
             if (segment.len == 0) continue;
 
-            node = if (node) |n|
-                n.child.get(segment)
-            else
-                null;
+            const n = node orelse return null;
 
-            node_special = if (node_special) |n| blk: {
-                const value: []const u8 = n.special_name orelse "unknown";
-                if (std.mem.eql(u8, value, "unknown")) {
-                    break :blk n.child.get(segment);
+            if (n.child.get(segment)) |next| {
+                node = next;
+                continue;
+            }
+
+            if (n.special_tree) |p| {
+                if (p.special_name) |param_name| {
+                    req.params.put(param_name, segment) catch {
+                        std.debug.print("Fail to find params", .{});
+                    };
                 }
-                std.debug.print("I am here special", .{});
+                node = p;
+                continue;
+            }
 
-                req.params.put(value, segment) catch {
-                    std.debug.print("Fail to find params", .{});
-                };
-
-                break :blk n.special_tree;
-            } else null;
+            return null;
         }
 
-        return node orelse node_special;
+        return node;
     }
     pub fn init(allocator: Allocator, io: Io) App {
         return .{ .allocator = allocator, .io = io, .root = .init(allocator) };
@@ -112,7 +111,7 @@ pub const App = struct {
                 new_node.* = tree.init(self.allocator);
                 if (segment[0] == ':') {
                     node.special_tree = new_node;
-                    node.special_name = segment[1..];
+                    node.special_tree.?.special_name = segment[1..];
                     node = node.special_tree.?;
                 } else {
                     try node.child.put(segment, new_node);
