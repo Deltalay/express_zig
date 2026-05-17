@@ -55,35 +55,45 @@ pub const App = struct {
         const trimmed = std.mem.trim(u8, path, "/");
         var it = std.mem.splitScalar(u8, trimmed, '/');
 
-        var node: *tree = &self.root;
+        var node: ?*tree = &self.root;
+        var node_special: ?*tree = &self.root;
 
         while (it.next()) |segment| {
             if (segment.len == 0) continue;
-            if (node.child.contains(segment)) {
-                node = node.child.get(segment).?;
-            } else {
-                if (node.special_tree != null) {
-                    const value: []const u8 = node.special_name orelse "unknown";
-                    req.params.put(value, segment) catch {
-                        std.debug.print("Fail to find params", .{});
-                    };
-                    node = node.special_tree orelse return null;
-                } else {
-                    return null;
-                }
-            }
 
-            // node = node.child.get(segment) orelse return null;
+            node = if (node) |n|
+                n.child.get(segment)
+            else
+                null;
+
+            node_special = if (node_special) |n| blk: {
+                const value: []const u8 = n.special_name orelse "unknown";
+                if (std.mem.eql(u8, value, "unknown")) {
+                    break :blk n.child.get(segment);
+                }
+                std.debug.print("I am here special", .{});
+
+                req.params.put(value, segment) catch {
+                    std.debug.print("Fail to find params", .{});
+                };
+
+                break :blk n.special_tree;
+            } else null;
         }
 
-        return node;
+        return node orelse node_special;
     }
     pub fn init(allocator: Allocator, io: Io) App {
         return .{ .allocator = allocator, .io = io, .root = .init(allocator) };
     }
-    pub fn put(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
+    fn registerRoute(
+        self: *App,
+        method: Method,
+        path: []const u8,
+        handler: fn (*Request, *Response) void,
+    ) !void {
         if (path.len == 0 or std.mem.eql(u8, path, "/")) {
-            self.root.handler.put(Method.PUT, handler);
+            self.root.handler.put(method, handler);
             return;
         }
 
@@ -92,107 +102,40 @@ pub const App = struct {
 
         var node: *tree = &self.root;
 
-        while (path_it.next()) |x| {
-            if (x.len == 0) continue;
+        while (path_it.next()) |segment| {
+            if (segment.len == 0) continue;
 
-            if (node.child.get(x)) |child| {
+            if (node.child.get(segment)) |child| {
                 node = child;
             } else {
                 const new_node = try self.allocator.create(tree);
                 new_node.* = tree.init(self.allocator);
-                if (std.mem.eql(u8, @constCast(x[0]), ":")) {
-                    std.debug.print("dynamic", .{});
-                }
-                node = new_node;
-            }
-        }
-
-        node.handler.put(Method.PUT, handler);
-    }
-    pub fn post(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
-        if (path.len == 0 or std.mem.eql(u8, path, "/")) {
-            self.root.handler.put(Method.POST, handler);
-            return;
-        }
-
-        const trimmed = std.mem.trim(u8, path, "/");
-        var path_it = std.mem.splitScalar(u8, trimmed, '/');
-
-        var node: *tree = &self.root;
-
-        while (path_it.next()) |x| {
-            if (x.len == 0) continue;
-
-            if (node.child.get(x)) |child| {
-                node = child;
-            } else {
-                const new_node = try self.allocator.create(tree);
-                new_node.* = tree.init(self.allocator);
-                try node.child.put(x, new_node);
-                node = new_node;
-            }
-        }
-
-        node.handler.put(Method.POST, handler);
-    }
-    pub fn delete(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
-        if (path.len == 0 or std.mem.eql(u8, path, "/")) {
-            self.root.handler.put(Method.DELETE, handler);
-            return;
-        }
-
-        const trimmed = std.mem.trim(u8, path, "/");
-        var path_it = std.mem.splitScalar(u8, trimmed, '/');
-
-        var node: *tree = &self.root;
-
-        while (path_it.next()) |x| {
-            if (x.len == 0) continue;
-
-            if (node.child.get(x)) |child| {
-                node = child;
-            } else {
-                const new_node = try self.allocator.create(tree);
-                new_node.* = tree.init(self.allocator);
-
-                try node.child.put(x, new_node);
-                node = new_node;
-            }
-        }
-
-        node.handler.put(Method.DELETE, handler);
-    }
-    pub fn get(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
-        if (path.len == 0 or std.mem.eql(u8, path, "/")) {
-            self.root.handler.put(Method.GET, handler);
-            return;
-        }
-
-        const trimmed = std.mem.trim(u8, path, "/");
-        var path_it = std.mem.splitScalar(u8, trimmed, '/');
-
-        var node: *tree = &self.root;
-
-        while (path_it.next()) |x| {
-            if (x.len == 0) continue;
-
-            if (node.child.get(x)) |child| {
-                node = child;
-            } else {
-                const new_node = try self.allocator.create(tree);
-                new_node.* = tree.init(self.allocator);
-                if (x[0] == ':') {
+                if (segment[0] == ':') {
                     node.special_tree = new_node;
-                    node.special_name = x[1..];
+                    node.special_name = segment[1..];
                     node = node.special_tree.?;
                 } else {
-                    try node.child.put(x, new_node);
+                    try node.child.put(segment, new_node);
                     node = new_node;
                 }
             }
         }
 
-        node.handler.put(Method.GET, handler);
+        node.handler.put(method, handler);
+    }
+    pub fn put(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
+        return self.registerRoute(Method.PUT, path, handler);
+    }
+
+    pub fn post(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
+        return self.registerRoute(Method.POST, path, handler);
+    }
+
+    pub fn delete(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
+        return self.registerRoute(Method.DELETE, path, handler);
+    }
+    pub fn get(self: *App, path: []const u8, handler: fn (*Request, *Response) void) !void {
+        return self.registerRoute(Method.GET, path, handler);
     }
     pub fn config(self: *App, ip: []const u8, port: u16) !void {
         self.port = port;

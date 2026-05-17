@@ -49,7 +49,7 @@ pub fn main(init: std.process.Init) !void {
     try app.get("/app/stff", stff_app_route);
     try app.get("/app/stff/sa", stff_app_route);
 
-    try app.get("/app/:id/:hello", get_app_route);
+    try app.get("/app/:id", get_app_route);
 
     try app.run();
 }
