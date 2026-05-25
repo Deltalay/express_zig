@@ -9,12 +9,16 @@ const net = std.Io.net;
 pub const Param = struct {};
 pub const Request = struct {
     req: *http.Server.Request,
-    params: std.StringHashMap([]const u8),
+    paramMap: std.StringHashMap([]const u8),
+    queryMap: std.StringHashMap([]const u8),
     pub fn init(req: *http.Server.Request, allocator: std.mem.Allocator) Request {
-        return Request{ .req = req, .params = std.StringHashMap([]const u8).init(allocator) };
+        return Request{ .req = req, .paramMap = std.StringHashMap([]const u8).init(allocator) };
     }
     pub fn param(self: *Request, key: []const u8) ?[]u8 {
-        return self.params.get(key) orelse null;
+        return self.paramMap.get(key) orelse null;
+    }
+    pub fn query(self: *Request, key: []const u8) ?[]u8 {
+        return self.queryMap.get(key) orelse null;
     }
 };
 pub const Response = struct {
@@ -96,7 +100,12 @@ pub const App = struct {
             return;
         }
 
-        const trimmed = std.mem.trim(u8, path, "/");
+        var trimmed = std.mem.trim(u8, path, "/");
+        const locQuery = std.mem.find(u8,  trimmed, '?');
+        if (locQuery) |x|
+        {
+            trimmed = trimmed[0..x];
+        }
         var path_it = std.mem.splitScalar(u8, trimmed, '/');
 
         var node: *tree = &self.root;
