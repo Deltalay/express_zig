@@ -35,8 +35,9 @@ pub fn get_app_route2(
 ) void {
     const hello: []const u8 = req.param("b") orelse "unknwon";
     const a: []const u8 = req.query("a") orelse "unknown";
+    const daa: []const u8 = req.query("data") orelse "unknown";
     var buf: [512]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, "appstff b {s} {s}", .{hello, a}) catch "app error";
+    const msg = std.fmt.bufPrint(&buf, "appstff b {s} {s} {s}", .{hello, a, daa}) catch "app error";
 
     res.send(msg);
 }

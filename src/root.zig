@@ -69,24 +69,19 @@ pub const App = struct {
                 var query_segment = std.mem.splitScalar(u8, trimmed_query, '&');
                 while (query_segment.next()) |each_query|
                 {
-                    var split_and = std.mem.splitScalar(u8, each_query, '=');
-
-                    while (split_and.next()) |query_name|
+                    const locEqual = std.mem.find(u8, each_query, "=");
+                    if (locEqual) |x_query|
                     {
-                        if (split_and.next()) |query_data|
-                        {
-                        req.queryMap.put(query_name, query_data) catch {
+                        req.queryMap.put(each_query[0..x_query], each_query[x_query+1..]) catch {
                             std.debug.print("Fail to put query", .{});
                         };
-
-                        } else {
-                            req.queryMap.put(query_name, "") catch {
-                                std.debug.print("Fail to put query", .{});
-                            };
-                        }
+                    } else {
+                        // No data is found "/?hello&hi=1"
+                        req.queryMap.put(each_query, "") catch {
+                            std.debug.print("Fail to put query", .{});
+                        };
                     }
                 }
-
             }
         }
         var it = std.mem.splitScalar(u8, trimmed, '/');
