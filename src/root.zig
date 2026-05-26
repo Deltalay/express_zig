@@ -12,13 +12,13 @@ pub const Request = struct {
     paramMap: std.StringHashMap([]const u8),
     queryMap: std.StringHashMap([]const u8),
     pub fn init(req: *http.Server.Request, allocator: std.mem.Allocator) Request {
-        return Request{ .req = req, .paramMap = std.StringHashMap([]const u8).init(allocator) };
+        return Request{ .req = req, .paramMap = std.StringHashMap([]const u8).init(allocator), .queryMap = std.StringHashMap([]const u8).init(allocator) };
     }
-    pub fn param(self: *Request, key: []const u8) ?[]u8 {
-        return self.paramMap.get(key) orelse null;
+    pub fn param(self: *Request, key: []const u8) ?[]const u8 {
+        return self.paramMap.get(key);
     }
-    pub fn query(self: *Request, key: []const u8) ?[]u8 {
-        return self.queryMap.get(key) orelse null;
+    pub fn query(self: *Request, key: []const u8) ?[]const u8 {
+        return self.queryMap.get(key) ;
     }
 };
 pub const Response = struct {
@@ -56,7 +56,39 @@ pub const App = struct {
             return &self.root;
         }
 
-        const trimmed = std.mem.trim(u8, path, "/");
+        var trimmed = std.mem.trim(u8, path, "/");
+        const locQuery = std.mem.find(u8,  trimmed, "?");
+        var op_query: ?[]const u8 = null;
+        if (locQuery) |x|
+        {
+            op_query = if (trimmed[x+1..].len > 0) trimmed[x+1..] else null;
+            trimmed = trimmed[0..x];
+            if (op_query) |query|
+            {
+                const trimmed_query = std.mem.trim(u8, query, "/");
+                var query_segment = std.mem.splitScalar(u8, trimmed_query, '&');
+                while (query_segment.next()) |each_query|
+                {
+                    var split_and = std.mem.splitScalar(u8, each_query, '=');
+
+                    while (split_and.next()) |query_name|
+                    {
+                        if (split_and.next()) |query_data|
+                        {
+                        req.queryMap.put(query_name, query_data) catch {
+                            std.debug.print("Fail to put query", .{});
+                        };
+
+                        } else {
+                            req.queryMap.put(query_name, "") catch {
+                                std.debug.print("Fail to put query", .{});
+                            };
+                        }
+                    }
+                }
+
+            }
+        }
         var it = std.mem.splitScalar(u8, trimmed, '/');
 
         var node: ?*tree = &self.root;
@@ -73,7 +105,7 @@ pub const App = struct {
 
             if (n.special_tree) |p| {
                 if (p.special_name) |param_name| {
-                    req.params.put(param_name, segment) catch {
+                    req.paramMap.put(param_name, segment) catch {
                         std.debug.print("Fail to find params", .{});
                     };
                 }
@@ -100,12 +132,8 @@ pub const App = struct {
             return;
         }
 
-        var trimmed = std.mem.trim(u8, path, "/");
-        const locQuery = std.mem.find(u8,  trimmed, '?');
-        if (locQuery) |x|
-        {
-            trimmed = trimmed[0..x];
-        }
+        const trimmed = std.mem.trim(u8, path, "/");
+
         var path_it = std.mem.splitScalar(u8, trimmed, '/');
 
         var node: *tree = &self.root;

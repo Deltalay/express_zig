@@ -22,7 +22,7 @@ pub fn get_app_route(
     req: *Request,
     res: *Response,
 ) void {
-    const id: []const u8 = req.params.get("a") orelse "unknwon";
+    const id: []const u8 = req.param("a") orelse "unknwon";
 
     var buf: [256]u8 = undefined;
     const msg = std.fmt.bufPrint(&buf, "app a {s}", .{id}) catch "app error";
@@ -33,10 +33,10 @@ pub fn get_app_route2(
     req: *Request,
     res: *Response,
 ) void {
-    const hello: []const u8 = req.params.get("b") orelse "unknwon";
-
-    var buf: [256]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, "appstff b {s}", .{hello}) catch "app error";
+    const hello: []const u8 = req.param("b") orelse "unknwon";
+    const a: []const u8 = req.query("a") orelse "unknown";
+    var buf: [512]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, "appstff b {s} {s}", .{hello, a}) catch "app error";
 
     res.send(msg);
 }
