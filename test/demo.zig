@@ -7,6 +7,9 @@ pub fn index(
     res: *Response,
 ) void {
     _ = req;
+    res.set_header("Content-Type", "application/json");
+    res.set_cookie("token", "HelloWorld", .{}); 
+    std.debug.print("demo {s}\n", .{res.headers.getLast().value});
 
     res.send("hello");
 }
@@ -37,7 +40,7 @@ pub fn get_app_route2(
     const a: []const u8 = req.query("a") orelse "unknown";
     const daa: []const u8 = req.query("data") orelse "unknown";
     var buf: [512]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, "appstff b {s} {s} {s}", .{hello, a, daa}) catch "app error";
+    const msg = std.fmt.bufPrint(&buf, "appstff b {s} {s} {s}", .{ hello, a, daa }) catch "app error";
 
     res.send(msg);
 }
