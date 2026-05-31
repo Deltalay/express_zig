@@ -18,18 +18,21 @@ pub const Request = struct {
         return self.paramMap.get(key);
     }
     pub fn query(self: *Request, key: []const u8) ?[]const u8 {
-        return self.queryMap.get(key) ;
+        return self.queryMap.get(key);
     }
 };
 pub const Response = struct {
     req: *http.Server.Request,
+    status_code: http.Status,
     pub fn send(self: *Response, data: []const u8) void {
         self.req.respond(data, .{ .keep_alive = false }) catch return;
     }
+    pub fn status(self: *Response, status_code: http.Status) void {
+        self.status_code = status_code;
+    }
+
     pub fn init(req: *http.Server.Request) Response {
-        return Response{
-            .req = req,
-        };
+        return Response{ .req = req, .status_code = .ok };
     }
 };
 const Method = enum { GET, POST, PUT, DELETE };
@@ -57,22 +60,18 @@ pub const App = struct {
         }
 
         var trimmed = std.mem.trim(u8, path, "/");
-        const locQuery = std.mem.find(u8,  trimmed, "?");
+        const locQuery = std.mem.find(u8, trimmed, "?");
         var op_query: ?[]const u8 = null;
-        if (locQuery) |x|
-        {
-            op_query = if (trimmed[x+1..].len > 0) trimmed[x+1..] else null;
+        if (locQuery) |x| {
+            op_query = if (trimmed[x + 1 ..].len > 0) trimmed[x + 1 ..] else null;
             trimmed = trimmed[0..x];
-            if (op_query) |query|
-            {
+            if (op_query) |query| {
                 const trimmed_query = std.mem.trim(u8, query, "/");
                 var query_segment = std.mem.splitScalar(u8, trimmed_query, '&');
-                while (query_segment.next()) |each_query|
-                {
+                while (query_segment.next()) |each_query| {
                     const locEqual = std.mem.find(u8, each_query, "=");
-                    if (locEqual) |x_query|
-                    {
-                        req.queryMap.put(each_query[0..x_query], each_query[x_query+1..]) catch {
+                    if (locEqual) |x_query| {
+                        req.queryMap.put(each_query[0..x_query], each_query[x_query + 1 ..]) catch {
                             std.debug.print("Fail to put query", .{});
                         };
                     } else {
