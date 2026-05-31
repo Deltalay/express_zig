@@ -8,7 +8,7 @@ pub fn index(
 ) void {
     _ = req;
     res.set_header("Content-Type", "application/json");
-    res.set_cookie("token", "HelloWorld", .{}); 
+    res.set_cookie("token", "HelloWorld", .{});
     std.debug.print("demo {s}\n", .{res.headers.getLast().value});
 
     res.send("hello");
@@ -59,6 +59,15 @@ pub fn stff_app_route(
 
     res.send("appstff");
 }
+pub fn user_profile(req: *Request, res: *Response) void {
+    const id = req.param("id") orelse return res.send("missing id");
+
+    var buf: [256]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, "{{\"user\": \"{s}\", \"status\": \"ok\"}}", .{id}) catch "error";
+
+    res.set_header("Content-Type", "application/json");
+    res.send(msg);
+}
 pub fn main(init: std.process.Init) !void {
     const arena: std.mem.Allocator = init.arena.allocator();
     const io = init.io;
@@ -66,6 +75,8 @@ pub fn main(init: std.process.Init) !void {
     var app = express_zig.express_zig(arena, io);
     try app.config("0.0.0.0", 8080);
     try app.get("/", index);
+    try app.get("/user/:id", user_profile);
+
     try app.get("/app", app_route);
     try app.get("/app/stff", stff_app_route);
     try app.get("/app/:a/stff", get_app_route);
