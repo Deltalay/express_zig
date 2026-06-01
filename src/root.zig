@@ -33,13 +33,17 @@ pub const Response = struct {
     allocator: std.mem.Allocator,
     const CookieOption = struct {
         domain: []const u8 = "",
-        expires: []const u8 = "",
+        expires: []u8 = "",
+        path: []u8 = "",
+        max_age: []u8 = "",
+        secure: bool = false,
+        http_only: bool = false,
+        // Handle with @tagName
+        same_site: enum { Strict, Lax , None } = .None,
+        partitioned: bool = false
     };
     pub fn send(self: *Response, data: []const u8) void {
-        std.debug.print("send 1{s}\n", .{self.headers.getLast().value});
-
         self.req.respond(data, .{ .keep_alive = false, .extra_headers = self.headers.items }) catch return;
-        std.debug.print("send 2{s}\n", .{self.headers.getLast().value});
         for (self.headers.items) |h| {
             self.allocator.free(h.value);
         }
@@ -56,8 +60,6 @@ pub const Response = struct {
         self.headers.append(self.allocator, header) catch {
             std.debug.print("Cannot set header {s} = {s}", .{ name, owned });
         };
-
-        std.debug.print("header2{s}\n", .{self.headers.getLast().value});
     }
     pub fn set_cookie(self: *Response, name: []const u8, value: []const u8, option: CookieOption) void {
         var val: []u8 = std.mem.concat(self.allocator, u8, &[_][]const u8{ name, "=", value, ";" }) catch {
@@ -71,6 +73,8 @@ pub const Response = struct {
             };
         }
         self.set_header("Set-Cookie", val);
+        // We able to do this since the val will be dupe in set_header function.
+        // Look set_header.
         defer self.allocator.free(val);
     }
     pub fn init(req: *http.Server.Request, allocator: std.mem.Allocator, io: Io) Response {
