@@ -7,6 +7,21 @@ pub fn index(
     res: *Response,
 ) void {
     _ = req;
+    res.set_header("Content-Type", "application/json");
+    res.set_cookie(
+        "token",
+        "HelloWorld",
+        .{
+            .expires = "Tue, 09 Jun 2026 12:00:00 GMT",
+            .path = "/",
+            .max_age = "3600",
+            .secure = true,
+            .http_only = true,
+            .same_site = .Strict,
+            .partitioned = true,
+        },
+    );
+    std.debug.print("demo {s}\n", .{res.headers.getLast().value});
 
     res.send("hello");
 }
@@ -37,7 +52,7 @@ pub fn get_app_route2(
     const a: []const u8 = req.query("a") orelse "unknown";
     const daa: []const u8 = req.query("data") orelse "unknown";
     var buf: [512]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, "appstff b {s} {s} {s}", .{hello, a, daa}) catch "app error";
+    const msg = std.fmt.bufPrint(&buf, "appstff b {s} {s} {s}", .{ hello, a, daa }) catch "app error";
 
     res.send(msg);
 }
@@ -56,6 +71,15 @@ pub fn stff_app_route(
 
     res.send("appstff");
 }
+pub fn user_profile(req: *Request, res: *Response) void {
+    const id = req.param("id") orelse return res.send("missing id");
+
+    var buf: [256]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, "{{\"user\": \"{s}\", \"status\": \"ok\"}}", .{id}) catch "error";
+
+    res.set_header("Content-Type", "application/json");
+    res.send(msg);
+}
 pub fn main(init: std.process.Init) !void {
     const arena: std.mem.Allocator = init.arena.allocator();
     const io = init.io;
@@ -63,6 +87,8 @@ pub fn main(init: std.process.Init) !void {
     var app = express_zig.express_zig(arena, io);
     try app.config("0.0.0.0", 8080);
     try app.get("/", index);
+    try app.get("/user/:id", user_profile);
+
     try app.get("/app", app_route);
     try app.get("/app/stff", stff_app_route);
     try app.get("/app/:a/stff", get_app_route);

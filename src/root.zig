@@ -4,15 +4,19 @@ const http = std.http;
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const Io = std.Io;
 const net = std.Io.net;
 pub const Param = struct {};
 pub const Request = struct {
+    io: Io,
     req: *http.Server.Request,
     paramMap: std.StringHashMap([]const u8),
     queryMap: std.StringHashMap([]const u8),
-    pub fn init(req: *http.Server.Request, allocator: std.mem.Allocator) Request {
-        return Request{ .req = req, .paramMap = std.StringHashMap([]const u8).init(allocator), .queryMap = std.StringHashMap([]const u8).init(allocator) };
+    allocator: std.mem.Allocator,
+
+    pub fn init(req: *http.Server.Request, allocator: std.mem.Allocator, io: Io) Request {
+        return Request{ .req = req, .paramMap = std.StringHashMap([]const u8).init(allocator), .queryMap = std.StringHashMap([]const u8).init(allocator), .io = io, .allocator = allocator };
     }
     pub fn param(self: *Request, key: []const u8) ?[]const u8 {
         return self.paramMap.get(key);
@@ -22,17 +26,102 @@ pub const Request = struct {
     }
 };
 pub const Response = struct {
+    io: Io,
     req: *http.Server.Request,
     status_code: http.Status,
+    headers: ArrayList(http.Header),
+    allocator: std.mem.Allocator,
+    const CookieOption = struct {
+        domain: []const u8 = "",
+        expires: []const u8= "",
+        path: []const u8 = "",
+        max_age: []const u8 = "",
+        secure: bool = false,
+        http_only: bool = false,
+        // Handle with @tagName
+        same_site: enum { Strict, Lax, None } = .None,
+        partitioned: bool = false,
+    };
     pub fn send(self: *Response, data: []const u8) void {
-        self.req.respond(data, .{ .keep_alive = false }) catch return;
+        self.req.respond(data, .{ .keep_alive = false, .extra_headers = self.headers.items }) catch return;
+        for (self.headers.items) |h| {
+            self.allocator.free(h.value);
+        }
+        defer self.headers.deinit(self.allocator);
     }
     pub fn status(self: *Response, status_code: http.Status) void {
         self.status_code = status_code;
     }
+    pub fn set_header(self: *Response, name: []const u8, value: []const u8) void {
+        const owned = self.allocator.dupe(u8, value) catch return;
 
-    pub fn init(req: *http.Server.Request) Response {
-        return Response{ .req = req, .status_code = .ok };
+        const header: http.Header = .{ .name = name, .value = owned };
+
+        self.headers.append(self.allocator, header) catch {
+            std.debug.print("Cannot set header {s} = {s}", .{ name, owned });
+        };
+    }
+    pub fn set_cookie(self: *Response, name: []const u8, value: []const u8, option: CookieOption) void {
+        var val: []u8 = std.mem.concat(self.allocator, u8, &[_][]const u8{ name, "=", value, ";" }) catch {
+            std.debug.print("Cannot Build Cookie", .{});
+            return;
+        };
+        if (std.mem.trim(u8, option.domain, " ").len > 0) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Domain=", std.mem.trim(u8, option.domain, " "), ";" }) catch {
+                std.debug.print("Cannot Build Cookie, domain", .{});
+                return;
+            };
+        }
+        if (std.mem.trim(u8, option.path, " ").len > 0) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Path=", std.mem.trim(u8, option.path, " "), ";" }) catch {
+                std.debug.print("Cannot Build Cookie, path", .{});
+                return;
+            };
+        }
+        if (std.mem.trim(u8, option.expires, " ").len > 0) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Expires=", std.mem.trim(u8, option.expires, " "), ";" }) catch {
+                std.debug.print("Cannot Build Cookie, expires", .{});
+                return;
+            };
+        }
+        if (std.mem.trim(u8, option.max_age, " ").len > 0) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Max-Age=", std.mem.trim(u8, option.max_age, " "), ";" }) catch {
+                std.debug.print("Cannot Build Cookie, max-age", .{});
+                return;
+            };
+        }
+        if (option.partitioned) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Partitioned", ";" }) catch {
+                std.debug.print("Cannot Build Cookie, partitioned", .{});
+                return;
+            };
+        }
+        if (option.secure) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Secure", ";" }) catch {
+                std.debug.print("Cannot Build Cookie, secure", .{});
+                return;
+            };
+        }
+        if (option.http_only) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "HttpOnly", ";" }) catch {
+                std.debug.print("Cannot Build Cookie, http-only", .{});
+                return;
+            };
+        }
+
+        if (std.mem.trim(u8, @tagName(option.same_site), " ").len > 0) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "SameSite=", std.mem.trim(u8, @tagName(option.same_site), " "), ";" }) catch {
+                std.debug.print("Cannot Build Cookie, same-site", .{});
+                return;
+            };
+        }
+        self.set_header("Set-Cookie", val);
+        // We able to do this since the val will be dupe in set_header function.
+        // Look set_header.
+        defer self.allocator.free(val);
+    }
+    pub fn init(req: *http.Server.Request, allocator: std.mem.Allocator, io: Io) Response {
+        return Response{ .req = req, .status_code = .ok, .io = io, .allocator = allocator, .headers = undefined };
     }
 };
 const Method = enum { GET, POST, PUT, DELETE };
@@ -199,8 +288,8 @@ pub const App = struct {
                 var req = try server_http.receiveHead();
                 const method = req.head.method;
                 const target = req.head.target;
-                var response = Response.init(&req);
-                var request = Request.init(&req, self.allocator);
+                var response = Response.init(&req, self.allocator, self.io);
+                var request = Request.init(&req, self.allocator, self.io);
                 const node = find(self, target, &request);
                 const n = node orelse {
                     try req.respond("", .{ .status = .not_found });
