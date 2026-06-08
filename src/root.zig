@@ -33,14 +33,14 @@ pub const Response = struct {
     allocator: std.mem.Allocator,
     const CookieOption = struct {
         domain: []const u8 = "",
-        expires: []u8 = "",
-        path: []u8 = "",
-        max_age: []u8 = "",
+        expires: []const u8= "",
+        path: []const u8 = "",
+        max_age: []const u8 = "",
         secure: bool = false,
         http_only: bool = false,
         // Handle with @tagName
-        same_site: enum { Strict, Lax , None } = .None,
-        partitioned: bool = false
+        same_site: enum { Strict, Lax, None } = .None,
+        partitioned: bool = false,
     };
     pub fn send(self: *Response, data: []const u8) void {
         self.req.respond(data, .{ .keep_alive = false, .extra_headers = self.headers.items }) catch return;
@@ -68,7 +68,50 @@ pub const Response = struct {
         };
         if (std.mem.trim(u8, option.domain, " ").len > 0) {
             val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Domain=", std.mem.trim(u8, option.domain, " "), ";" }) catch {
-                std.debug.print("Cannot Build Cookie", .{});
+                std.debug.print("Cannot Build Cookie, domain", .{});
+                return;
+            };
+        }
+        if (std.mem.trim(u8, option.path, " ").len > 0) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Path=", std.mem.trim(u8, option.path, " "), ";" }) catch {
+                std.debug.print("Cannot Build Cookie, path", .{});
+                return;
+            };
+        }
+        if (std.mem.trim(u8, option.expires, " ").len > 0) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Expires=", std.mem.trim(u8, option.expires, " "), ";" }) catch {
+                std.debug.print("Cannot Build Cookie, expires", .{});
+                return;
+            };
+        }
+        if (std.mem.trim(u8, option.max_age, " ").len > 0) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Max-Age=", std.mem.trim(u8, option.max_age, " "), ";" }) catch {
+                std.debug.print("Cannot Build Cookie, max-age", .{});
+                return;
+            };
+        }
+        if (option.partitioned) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Partitioned", ";" }) catch {
+                std.debug.print("Cannot Build Cookie, partitioned", .{});
+                return;
+            };
+        }
+        if (option.secure) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "Secure", ";" }) catch {
+                std.debug.print("Cannot Build Cookie, secure", .{});
+                return;
+            };
+        }
+        if (option.http_only) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "HttpOnly", ";" }) catch {
+                std.debug.print("Cannot Build Cookie, http-only", .{});
+                return;
+            };
+        }
+
+        if (std.mem.trim(u8, @tagName(option.same_site), " ").len > 0) {
+            val = std.mem.concat(self.allocator, u8, &[_][]const u8{ val, "SameSite=", std.mem.trim(u8, @tagName(option.same_site), " "), ";" }) catch {
+                std.debug.print("Cannot Build Cookie, same-site", .{});
                 return;
             };
         }

@@ -8,7 +8,19 @@ pub fn index(
 ) void {
     _ = req;
     res.set_header("Content-Type", "application/json");
-    res.set_cookie("token", "HelloWorld", .{});
+    res.set_cookie(
+        "token",
+        "HelloWorld",
+        .{
+            .expires = "Tue, 09 Jun 2026 12:00:00 GMT",
+            .path = "/",
+            .max_age = "3600",
+            .secure = true,
+            .http_only = true,
+            .same_site = .Strict,
+            .partitioned = true,
+        },
+    );
     std.debug.print("demo {s}\n", .{res.headers.getLast().value});
 
     res.send("hello");
