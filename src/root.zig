@@ -33,7 +33,7 @@ pub const Response = struct {
     allocator: std.mem.Allocator,
     const CookieOption = struct {
         domain: []const u8 = "",
-        expires: []const u8= "",
+        expires: []const u8 = "",
         path: []const u8 = "",
         max_age: []const u8 = "",
         secure: bool = false,
@@ -290,6 +290,9 @@ pub const App = struct {
                 const target = req.head.target;
                 var response = Response.init(&req, self.allocator, self.io);
                 var request = Request.init(&req, self.allocator, self.io);
+                defer request.queryMap.deinit();
+                defer request.paramMap.deinit();
+
                 const node = find(self, target, &request);
                 const n = node orelse {
                     try req.respond("", .{ .status = .not_found });
